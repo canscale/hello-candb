@@ -41,7 +41,9 @@ shared ({ caller = owner }) actor class HelloService({
     switch(user) {
       case null { null };
       case (?u) {
+        // Make a change to the line below to test out CanDB upgrades!
         ?("Hello " # u.displayName # " from " # db.pk);
+        //?("Hello " # u.displayName # " from " # db.pk # " - service upgraded!");
       }
     }
   };
@@ -82,5 +84,11 @@ shared ({ caller = owner }) actor class HelloService({
         null 
       }
     };
+  };
+
+
+  // Used to pass new scaling options to the db through an upgrade from the IndexCanister if desired
+  system func postupgrade() {
+    db.scalingOptions := scalingOptions;
   };
 }

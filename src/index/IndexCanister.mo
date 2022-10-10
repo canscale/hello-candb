@@ -4,11 +4,14 @@ import Error "mo:base/Error";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 
+import Admin "mo:candb/CanDBAdmin";
 import CA "mo:candb/CanisterActions";
 import CanisterMap "mo:candb/CanisterMap";
 import Utils "mo:candb/Utils";
 import Buffer "mo:stable-buffer/StableBuffer";
 import HelloService "../helloservice/HelloService";
+
+
 
 shared ({caller = owner}) actor class IndexCanister() = this {
   /// @required stable variable (Do not delete or change)
@@ -93,5 +96,54 @@ shared ({caller = owner}) actor class IndexCanister() = this {
 
     Debug.print("new hello service canisterId=" # newHelloServiceCanisterId);
     newHelloServiceCanisterId;
+  };
+
+  /// !! Do not use this method without caller authorization
+  /// Upgrade user canisters in a PK range, i.e. rolling upgrades (limit is fixed at upgrading the canisters of 5 PKs per call)
+  public shared({ caller = caller }) func upgradeGroupCanistersInPKRange(lowerPK: Text, upperPK: Text, wasmModule: Blob): async Admin.UpgradePKRangeResult {
+    /* !!! Recommend Adding to prevent anyone from being able to upgrade the wasm of your service actor canisters
+    if (caller != owner) { // basic authorization
+      return {
+        upgradeCanisterResults = [];
+        nextKey = null;
+      }
+    }; 
+    */
+
+
+    // CanDB documentation on this library function - https://www.candb.canscale.dev/CanDBAdmin.html
+    await Admin.upgradeCanistersInPKRange({
+      canisterMap = pkToCanisterMap;
+      lowerPK = lowerPK; 
+      upperPK = upperPK;
+      limit = 5;
+      wasmModule = wasmModule;
+      // the scaling options parameter that will be passed to the constructor of the upgraded canister
+      scalingOptions = {
+        autoScalingHook = autoScaleHelloServiceCanister;
+        sizeLimit = #heapSize(200_000_000); // Scale out at 200MB
+      };
+      // the owners parameter that will be passed to the constructor of the upgraded canister
+      owners = ?[owner, Principal.fromActor(this)];
+    });
+  };
+
+  /// !! Do not use this method without caller authorization
+  /// Spins down all canisters belonging to a specific user (transfers cycles back to the index canister, and stops/deletes all canisters)
+  public shared({caller = caller}) func deleteCanistersByPK(pk: Text): async ?Admin.CanisterCleanupStatusMap {
+    /* !!! Recommend Adding to prevent anyone from being able to delete your service actor canisters
+    if (caller != owner) return null; // authorization 
+    */
+
+    let canisterIds = getCanisterIdsIfExists(pk);
+    if (canisterIds == []) {
+      Debug.print("canisters with pk=" # pk # " do not exist");
+      null
+    } else {
+      // can choose to use this statusMap for to detect failures and prompt retries if desired 
+      let statusMap = await Admin.transferCyclesStopAndDeleteCanisters(canisterIds);
+      pkToCanisterMap := CanisterMap.delete(pkToCanisterMap, pk);
+      ?statusMap;
+    };
   };
 }
